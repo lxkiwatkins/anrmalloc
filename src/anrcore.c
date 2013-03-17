@@ -616,24 +616,24 @@ uint32_t mask_left(bitmap_t map, uint32_t index) {
 
 
 
-#define dirty_list_unlink(node)\
-    do { \
-        treechunk_t * next = node->dirty.next; \
-        treechunk_t * prev = node->dirty.prev; \
-        next->dirty.prev = prev; \
-        prev->dirty.next = next; \
-        node->dirty.next = node; \
-        node->dirty.prev = node; \
-    } while (0)
+static inline void dirty_list_unlink(treechunk_t *node)
+{
+    treechunk_t * next = node->dirty.next;
+    treechunk_t * prev = node->dirty.prev;
+    next->dirty.prev = prev;
+    prev->dirty.next = next;
+    node->dirty.next = node;
+    node->dirty.prev = node;
+}
 
-#define dirty_list_link(node, __next)\
-    do { \
-        treechunk_t * prev = (__next)->dirty.prev; \
-        (node)->dirty.next = __next; \
-        (__next)->dirty.prev = node; \
-        (prev)->dirty.next = node; \
-        (node)->dirty.prev = prev; \
-    } while (0)
+static inline void dirty_list_link(treechunk_t *node, treechunk_t *__next)
+{
+    treechunk_t * prev = (__next)->dirty.prev;
+    (node)->dirty.next = __next;
+    (__next)->dirty.prev = node;
+    (prev)->dirty.next = node;
+    (node)->dirty.prev = prev;
+}
 
 #ifndef MALLOC_DEBUG
 #define MALLOC_DEBUG 0
@@ -4128,7 +4128,6 @@ void
 _anr_core_add_mapping(malloc_state_t * self, unsigned int available, unsigned int bytes)
 {
     uintptr_t offset;
-    unsigned int i;
     uintptr_t end;
     uintptr_t start;
     mapping_t * mapping = map_address_space(available, bytes);
@@ -4193,9 +4192,6 @@ _anr_core_add_mapping(malloc_state_t * self, unsigned int available, unsigned in
 
     debug_assert(offset/BITS_PER_WORD  < mapping->mapwords);
     mapping->dirtymap[ index2word(offset)] = 1 << index2bit(offset);
-
-    i = (unsigned int)ptr_to_page(mapping->fence)- (int)mapping->top;
-    i/= PAGESIZE_BYTES;
 
     /* mark the dirtymap bits for area->top -> area->fence */
     end = (uintptr_t)mapping->fence - (uintptr_t)mapping->top;
@@ -5934,8 +5930,8 @@ check_dirtymap(malloc_state_t * self, bool print)
             dirty_page_check += population_count(mapping->dirtymap[i]);
             if (print 
                 && mapping->dirtymap[i])
-                printf ("0x%8x -- %08x\n", 
-                       (int)mapping->top + PAGESIZE_BYTES * i * BITS_PER_WORD, 
+                printf ("%p -- %08x\n",
+                       mapping->top + PAGESIZE_BYTES * i * BITS_PER_WORD,
                        mapping->dirtymap[i]);
 
         }
