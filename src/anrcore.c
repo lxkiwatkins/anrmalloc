@@ -616,24 +616,24 @@ uint32_t mask_left(bitmap_t map, uint32_t index) {
 
 
 
-#define dirty_list_unlink(node)\
-    do { \
-        treechunk_t * next = node->dirty.next; \
-        treechunk_t * prev = node->dirty.prev; \
-        next->dirty.prev = prev; \
-        prev->dirty.next = next; \
-        node->dirty.next = node; \
-        node->dirty.prev = node; \
-    } while (0)
+static inline void dirty_list_unlink(treechunk_t *node)
+{
+    treechunk_t * next = node->dirty.next;
+    treechunk_t * prev = node->dirty.prev;
+    next->dirty.prev = prev;
+    prev->dirty.next = next;
+    node->dirty.next = node;
+    node->dirty.prev = node;
+}
 
-#define dirty_list_link(node, __next)\
-    do { \
-        treechunk_t * prev = (__next)->dirty.prev; \
-        (node)->dirty.next = __next; \
-        (__next)->dirty.prev = node; \
-        (prev)->dirty.next = node; \
-        (node)->dirty.prev = prev; \
-    } while (0)
+static inline void dirty_list_link(treechunk_t *node, treechunk_t *__next)
+{
+    treechunk_t * prev = (__next)->dirty.prev;
+    (node)->dirty.next = __next;
+    (__next)->dirty.prev = node;
+    (prev)->dirty.next = node;
+    (node)->dirty.prev = prev;
+}
 
 #ifndef MALLOC_DEBUG
 #define MALLOC_DEBUG 0
