@@ -15,7 +15,7 @@
 // number to fail, since there are various overheads.
 static const unsigned int ALLOC_SIZE = 64 * 1024;
 
-static bool was_more_memory_called = false;
+static volatile bool was_more_memory_called = false;
 
 unsigned int more_memory(void* u1, unsigned int u2, unsigned int u3)
 {

@@ -374,9 +374,7 @@ struct malloc_state{
     uint32_t available_words;                    /* available words */
     uint32_t total_words;                        /* total words */
     mapping_t * mappings;                        /* mappings being managed */
-    struct{
-        LIST_LINKAGE (treechunk);
-    }dirty;
+    treechunk_t dirty;   
     bitmap_t smallmap[NEAREST_N_BITS(SMALLBINS)];  /* The searchbins and their bitmasks  */
     bitmap_t largemap[NEAREST_N_BITS(LARGEBINS)]; 
     binchunk_t smallbins[SMALLBINS];            
@@ -2101,10 +2099,10 @@ static inline void
 clean_pages(malloc_state_t * self, uint32_t needed)
 {
     uint32_t returned_pages = 0;
-    treechunk_t * dirty = self->dirty.prev;
+    treechunk_t * dirty = self->dirty.dirty.prev;
     treechunk_t * next;
 
-    while (returned_pages < needed && dirty != tree_cast(self)) {
+    while (returned_pages < needed && dirty != &self->dirty) {
         uint32_t pages;
         uintptr_t unused = first_contained_page(chunk_to_unused(dirty));
         pages = contained_pages(chunk_cast(dirty)); 
@@ -3656,7 +3654,7 @@ insert_chunk(malloc_state_t * self, chunk_t * block)
             mark_largemap(self, index);
         }
 
-        dirty_list_link(tree_cast(block), self->dirty.next);
+        dirty_list_link(tree_cast(block), self->dirty.dirty.next);
     }
 }
 
@@ -4401,7 +4399,7 @@ _anr_core_init(malloc_state_t ** out_self,
         _abort = abort_func;
 
     self->free_list = NULL;
-    self->dirty.next = self->dirty.prev = tree_cast(self);
+    self->dirty.dirty.next = self->dirty.dirty.prev = &self->dirty;
     /* we map the state struct in 2 pages.  gotta account for that */
     mapsize -= 2 * PAGESIZE_BYTES;
     pool_size -= 2 * PAGESIZE_BYTES;
@@ -4445,7 +4443,7 @@ _anr_core_init(malloc_state_t ** out_self,
 
     for (; mapcount > 0; mapcount--) {
         _anr_core_add_mapping (self, pool_size, mapsize);
-        self->dirty.next = self->dirty.prev = tree_cast(self);
+        self->dirty.dirty.next = self->dirty.dirty.prev = &self->dirty;
     }
 
     valgrind_make_internals_defined(self);
@@ -6113,10 +6111,10 @@ check_mappings (malloc_state_t * self)
                             return 1;
                         }else{
                             while (chunk->dirty.next != chunk 
-                                   && chunk->dirty.next != tree_cast(self)) {
+                                   && chunk->dirty.next != &self->dirty) {
                                 chunk = chunk->dirty.next;
                             }
-                            if (chunk->dirty.next != tree_cast(self)) {
+                            if (chunk->dirty.next != &self->dirty) {
                                 printf ("dirty chunk not in dirty list!\n");
                                 return 1;
                             }
@@ -6152,10 +6150,10 @@ check_mappings (malloc_state_t * self)
 int
 check_dirty_list(malloc_state_t * self, bool print)
 {
-    treechunk_t * dirty = self->dirty.prev;
+    treechunk_t * dirty = self->dirty.dirty.prev;
     int count = 0;
 
-    while (dirty != tree_cast(self) && count <= self->total_pages) {
+    while (dirty != &self->dirty && count <= self->total_pages) {
         if (print) { 
             printf ("%p - %d pages\n", 
                    dirty, count_contained_dirty_pages(self, chunk_cast(dirty)));
@@ -6173,7 +6171,7 @@ check_dirty_list(malloc_state_t * self, bool print)
         dirty = dirty->dirty.prev;
     }
 
-    if (dirty != tree_cast(self)) {
+    if (dirty != &self->dirty) {
         printf ("dirty list hosed\n");
     }
         
@@ -6181,7 +6179,7 @@ check_dirty_list(malloc_state_t * self, bool print)
         printf ("less pages in list than reclaimable\n");
         return 1;
     }
-    return dirty != tree_cast(self);
+    return dirty != &self->dirty;
 }
 
 
@@ -6217,7 +6215,7 @@ internal_verify (malloc_state_t * self)
                self->available_pages,  self->total_pages);
         status++;
     }
-    if (!self->dirty.next && !self->dirty.prev) {
+    if (!self->dirty.dirty.next && !self->dirty.dirty.prev) {
         printf ("dirty list hosed\n");
         status+= 1;
     }
@@ -6900,21 +6898,21 @@ UNIT_TEST(realloc_grow_and_shrink_hard)
     ut_state->available_words -= chunk_words (block[0]);
     allocate_pages (ut_state, block[0]);
 
-    block[1] = split_chunk_top (ut_state, block[0], 4);
+    block[1] = split_chunk_top (ut_state, block[0], 5);
 
     set_prev_in_use(block[1]);
     set_in_use (block[1]);
 
-    block[2] = split_chunk_top (ut_state, block[1], 5);
+    block[2] = split_chunk_top (ut_state, block[1], 6);
     set_prev_in_use (block[2]);
     set_in_use (block[2]);
 
-    block[3] = split_chunk_top (ut_state, block[2], 5);
+    block[3] = split_chunk_top (ut_state, block[2], 6);
 
     set_prev_in_use (block[3]);
     set_in_use (block[3]);
 
-    block[0] = split_chunk_top (ut_state, block[3], 6);
+    block[0] = split_chunk_top (ut_state, block[3], 7);
     set_prev_in_use (block[0]);
     set_in_use (block[0]);
 
@@ -7210,7 +7208,7 @@ UNIT_TEST(easy_slabs)
 {
     void * ptr[10];
     int i;
-    uint32_t slabs[] = { 16 };
+    uint32_t slabs[] = { 32 };
     UNIT_TEST_HEADER;
 
     _anr_core_init(&ut_state, 
@@ -7243,7 +7241,7 @@ UNIT_TEST(hard_slabs)
 
     void ** ptrs;
     int i;
-    uint32_t slabs[] = { 16,20,24,32,36,128,100 };
+    uint32_t slabs[] = { 20,24,32,36,128,100 };
     UNIT_TEST_HEADER;
 
     _anr_core_init(&ut_state, 
@@ -7289,7 +7287,7 @@ UNIT_TEST(alignment)
 {
     void ** ptrs;
     int i;
-    uint32_t slabs[] = { 16,20,24,32,36,128,100 };
+    uint32_t slabs[] = { 20,24,32,36,128,100 };
     UNIT_TEST_HEADER;
 
     _anr_core_init(&ut_state, 
@@ -7320,7 +7318,7 @@ UNIT_TEST(alignment)
                    POOL_SIZE * 2, 
                    1024,
                    0, 
-                   slabs, NULL, NULL, NULL);
+                   NULL, NULL, NULL, NULL);
 
     for (i = 0; i< 10000; i++) {
 
@@ -7475,7 +7473,7 @@ UNIT_TEST(fillwithtrash)
 {
     word_t * ptr;
     unsigned int i;
-    uint32_t slab_sizes[] = { 16 };
+    uint32_t slab_sizes[] = { 32 };
     unsigned int size;
     UNIT_TEST_HEADER;
 
@@ -7521,13 +7519,13 @@ UNIT_TEST(fillwithtrash)
     _anr_core_init(&ut_state, FILL_WITH_TRASH, POOL_SIZE, POOL_SIZE * 2,
                    1024, 1, slab_sizes, NULL, NULL, NULL);
 
-    ptr = ut_malloc(16);
+    ptr = ut_malloc(32);
 
     assert(alloc_is_slice(ut_state, ptr));
 
     ut_free(ptr);
 
-    for (i = 0; i < bytes_to_words(16); i++)
+    for (i = 0; i < bytes_to_words(32); i++)
         assert((uintptr_t)ptr[i] == (uintptr_t)0xdeadbeef);
 
     _anr_core_teardown(ut_state);
@@ -7626,9 +7624,13 @@ UNIT_TEST(slab_realloc)
                     slabs, NULL, NULL, NULL);
 
 
-    ptrs[0] = ut_malloc(16);
-    
-    assert(alloc_is_slice(ut_state,ptrs[0]));
+    do {
+        /* There may be other chunks around other than the slab that
+         * could fulfill this allocation.  Keep trying until we get a
+         * slice. */
+        ptrs[0] = ut_malloc(16);
+    } while (!alloc_is_slice(ut_state, ptrs[0]));
+
     /* verify that we can grow in the same slice up to the slab size */
     ptrs[1] = ut_realloc(ptrs[0], 20);
 
